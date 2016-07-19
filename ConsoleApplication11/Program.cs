@@ -56,7 +56,7 @@ namespace ConsoleApplication11
 
             if (cmp.ThreadNumber == -1 || cmp.RowsPerThread == -1 || cmp.ConnectionString == string.Empty || cmp.InsertMode == InsertMode.Invalid)
             {
-                Console.WriteLine("Syntax error. Syntax:\nInsertTester -t <thread num> -r <rows per thread> -c <connection string> -i <insert mode> |-b <batch size>|\n");
+                Console.WriteLine("Syntax error. Syntax:\nInsertTester -t <thread num> -r <rows per thread> -c <connection string> -i <insert mode> |-b <batch size>| |-p user partitioned table|\n");
                 Console.WriteLine("\t-b\tOptional batch size (default {0:N0}). Used in bulk inserts only.", CommandLineParams.DEFAULT_BATCH_SIZE);
                 Console.WriteLine("\t-p\tOptional use partitioned table (true or false, default {0:S0}).", CommandLineParams.DEFAULT_USE_PARTITIONED_TABLE.ToString());
                 Console.WriteLine("\nInsert modes available:");
@@ -124,7 +124,7 @@ namespace ConsoleApplication11
             tbl.Columns.Add("Testo");
             tbl.Columns.Add("Dt");
 
-            Console.WriteLine(string.Format("Thread {0:N0} buffer allocation starting (allocaging {1:N0} rows)", p.ThreadNumber, p.GenericParams.RowsPerThread));
+            Console.WriteLine(string.Format("Thread {0:N0} buffer allocation starting (allocating {1:N0} rows)", p.ThreadNumber, p.GenericParams.RowsPerThread));
             for (int i = 0; i < p.GenericParams.RowsPerThread; i++)
             {
                 tbl.Rows.Add(new object[]
@@ -235,6 +235,72 @@ namespace ConsoleApplication11
                             }
                         }
                         break;
+                    #endregion
+
+                    case InsertMode.TSQL_Prepared:
+                        #region TSQL_Prepared
+                        {
+                            string tableName = p.GenericParams.UsePartitionedTable ? "tblHeapPartition" : "tblHeap";
+                            string tsql = string.Format(@"INSERT INTO {0:S}(ID, Testo, Dt)
+                                        VALUES(@ID, @Testo, @Dt);", tableName);
+
+                            foreach (DataRow row in tbl.Rows)
+                            {
+                                using (SqlConnection conn = new SqlConnection(p.GenericParams.ConnectionString))
+                                {
+                                    conn.Open();
+
+                                    using (SqlCommand cmd = new SqlCommand(tsql, conn))
+                                    {
+                                        cmd.CommandType = CommandType.Text;
+
+                                        SqlParameter param = new SqlParameter("@ID", SqlDbType.Int, 4);
+                                        param.Value = row[0];
+                                        cmd.Parameters.Add(param);
+
+                                        param = new SqlParameter("@Testo", SqlDbType.NVarChar, 255);
+                                        param.Value = row[1];
+                                        cmd.Parameters.Add(param);
+
+                                        param = new SqlParameter("@Dt", SqlDbType.DateTime, 8);
+                                        param.Value = row[2];
+                                        cmd.Parameters.Add(param);
+
+                                        cmd.Prepare();
+
+                                        cmd.ExecuteNonQuery();
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    #endregion
+
+                    case InsertMode.TSQL:
+                        #region TSQL
+                        {
+                            string tableName = p.GenericParams.UsePartitionedTable ? "tblHeapPartition" : "tblHeap";
+
+                            foreach (DataRow row in tbl.Rows)
+                            {
+                                using (SqlConnection conn = new SqlConnection(p.GenericParams.ConnectionString))
+                                {
+                                    conn.Open();
+
+                                    string tsql = string.Format(@"INSERT INTO {0:S}(ID, Testo, Dt)
+                                        VALUES({1:D}, '{2:S}', '{3:S}');",
+                                            tableName,
+                                            row[0], row[1], row[2].ToString());
+
+                                    using (SqlCommand cmd = new SqlCommand(tsql, conn))
+                                    {
+                                        cmd.CommandType = CommandType.Text;
+                                        cmd.ExecuteNonQuery();
+                                    }
+                                }
+                            }
+                            break;
+                        }
                     #endregion
 
                     default:
